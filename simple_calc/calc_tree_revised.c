@@ -252,30 +252,28 @@ node *parse_expression(void) {
                     }
                 }
                 if (g_prev_priority == priority) {
-                    // add new node above of current node
                     g_current_node = add_node_above(
                                         g_current_node,
                                         current_word
                                      );
                     g_prev_priority = priority;
                 } else if (g_prev_priority < priority) {
-                    // add new node below of current node
                     g_prev_current_node = g_current_node;
                     g_current_node = add_node_below(
                                         g_current_node,
                                         current_word
                                      );
                     g_prev_priority = priority;
+                } else if (g_prev_priority > priority) {
+                    g_current_node = add_node_above(
+                                        g_prev_current_node,
+                                        current_word
+                                     );
+                    g_prev_priority = priority;
+                    g_prev_current_node = NULL;
                 }
-                // get next operation
-                // check its priority with prev_priority
-
-                // if prev_priority < priority then
-                // add new node above current node
             } else if (isnumber(current_word[0])) {
                 // working with right thread
-                //
-                // get number
                 g_current_node->right = add_node(NULL, current_word);
                 g_current_node->right->top = g_current_node;
             }
