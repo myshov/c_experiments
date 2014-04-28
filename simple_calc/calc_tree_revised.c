@@ -5,6 +5,7 @@
 
 #define BUFSIZE 100
 #define MAXWORD 100
+#define UNINITIALISED 0
 
 enum {NUMBER, TASK_END, EXIT};
 
@@ -17,9 +18,12 @@ typedef struct tnode {
 } node;
 
 int getword(char *, int);
-char getch(void);
-void ungetch(char);
+char getch_local(void);
+void ungetch_local(char);
+void ungets_local(char s[]);
+
 node *add_node(node *p, char *w);
+node *add_node_above(node *p, char *w);
 node *talloc(void);
 node *parse_parensis(void);
 node *parse_expression(void);
@@ -27,13 +31,14 @@ double calculate(node *part);
 
 node *g_current_node = NULL;
 node *g_current_op_node = NULL;
+int g_prev_priority = UNINITIALISED;
 
-/* externals for getch and ungetch functions */
+/* externals for getch_local and ungetch_local functions */
 char buf[BUFSIZE];
 int bp = 0;
 char buf_char;
 
-char getch(void) {
+char getch_local(void) {
     char c;
     if (bp > 0) {
         c = buf[--bp];
@@ -43,11 +48,20 @@ char getch(void) {
     return c;
 }
 
-void ungetch(char c) {
+void ungetch_local(char c) {
     if (bp > BUFSIZE) {
-        printf("error: ungetch - buffer is full\n");
+        printf("error: ungetch_local - buffer is full\n");
     } else {
         buf[bp++] = c;
+    }
+}
+
+void ungets_local(char s[]) {
+    int s_length;
+    int i;
+    s_length = strlen(s);
+    for (i = s_length; i > 0; i--) {
+        ungetch_local(s[i - 1]);
     }
 }
 
@@ -55,7 +69,7 @@ int getword(char *word, int lim) {
     char c;
     char *w = word;
 
-    while ((c = getch()) == '\t' || c == ' ') {
+    while ((c = getch_local()) == '\t' || c == ' ') {
         ;
     }
 
@@ -82,8 +96,8 @@ int getword(char *word, int lim) {
     } else if (isnumber(c)) {
         *w++ = c;
         while (--lim > 0) {
-            if (!isnumber(*w = getch())) {
-                ungetch(*w);
+            if (!isnumber(*w = getch_local())) {
+                ungetch_local(*w);
                 break;
             }
             w++;
@@ -112,12 +126,12 @@ int is_expression(int p) {
     }
 }
 
-/* add_node */
+/* add_node empty */
 node *add_node(node *p, char *w) {
-    int cond;
     if (p == NULL) {
         if (is_operation(w[0])) {
             p = talloc();
+            p->operand = 0;
             p->operator = w[0];
             p->left = p->right = p->top = NULL;
         } else if (isnumber(w[0])) {
@@ -130,9 +144,40 @@ node *add_node(node *p, char *w) {
     return p;
 }
 
+
+/* add node above */
+node *add_node_above(node *p, char *w) {
+    node *local_node;
+    local_node = add_node(NULL, w);
+    local_node->left = p;
+    p->top = local_node;
+    return local_node;
+}
+
 /* talloc: make a tnode */
 node *talloc(void) {
     return (node *) malloc(sizeof(node));
+}
+
+void tfree(node *part) {
+    if (part->left) {
+        tfree(part->left);
+    } else {
+        free(part);
+        part = NULL;
+    }
+    if (part) {
+        if (part->right) {
+            tfree(part->right);
+        } else {
+            free(part);
+            part = NULL;
+        }
+    }
+    if (part) {
+        free(part);
+        part = NULL;
+    }
 }
 
 double calculate(node *part) {
@@ -169,6 +214,7 @@ node *parse_expression(void) {
     int word_type;
     char current_word[MAXWORD];
     node l_node;
+    int priority = 0;
 
     while ((word_type = getword(current_word, MAXWORD)) != EXIT) {
         if (word_type == '(') {
@@ -179,20 +225,48 @@ node *parse_expression(void) {
             if (!g_current_node) {
                 g_current_node = add_node(NULL, current_word);
             } else if (is_operation(word_type)) {
-                g_current_op_node = add_node(NULL, current_word);
-                g_current_op_node->left = g_current_node;
-                g_current_node->top = g_current_op_node;
-                g_current_node = g_current_op_node;
+                // working with central node and left thread
+                if (word_type == '+' || word_type == '-') {
+                    priority = 1;
+                    if (g_prev_priority == UNINITIALISED) {
+                        g_prev_priority = 1;
+                    }
+                } else if (word_type == '*' || word_type == '/') {
+                    priority = 2;
+                    if (g_prev_priority == UNINITIALISED) {
+                        g_prev_priority = 2;
+                    }
+                }
+                // if prev_priority == priority then
+                // add new node above current node
+                if (g_prev_priority == priority) {
+                    g_current_node = add_node_above(
+                                        g_current_node,
+                                        current_word
+                                     );
+                    g_prev_priority = priority;
+                }
+                // get next operation
+                // check its priority with prev_priority
+
+                // if prev_priority < priority then
+                // add new node above current node
             } else if (isnumber(current_word[0])) {
+                // working with right thread
+                //
+                // get number
                 g_current_node->right = add_node(NULL, current_word);
                 g_current_node->right->top = g_current_node;
             }
-        
+ 
 
         } else if (word_type == TASK_END) {
             printf("-----------\n");
             printf("calculation\n");
             printf("result: %f\n", calculate(g_current_node));
+            tfree(g_current_node);
+            g_current_node = NULL;
+            g_prev_priority = UNINITIALISED;
         } else {
             printf("error: %s is wrong expression\n", current_word);
         }
