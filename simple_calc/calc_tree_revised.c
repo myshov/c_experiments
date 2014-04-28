@@ -24,13 +24,14 @@ void ungets_local(char s[]);
 
 node *add_node(node *p, char *w);
 node *add_node_above(node *p, char *w);
+node *add_node_below(node *p, char *w);
 node *talloc(void);
 node *parse_parensis(void);
 node *parse_expression(void);
 double calculate(node *part);
 
 node *g_current_node = NULL;
-node *g_current_op_node = NULL;
+node *g_prev_current_node = NULL;
 int g_prev_priority = UNINITIALISED;
 
 /* externals for getch_local and ungetch_local functions */
@@ -150,7 +151,20 @@ node *add_node_above(node *p, char *w) {
     node *local_node;
     local_node = add_node(NULL, w);
     local_node->left = p;
-    p->top = local_node;
+    local_node->top = p->top;
+    if (p->top) {
+        p->top->right = local_node;
+    }
+    return local_node;
+}
+
+/* add node below */
+node *add_node_below(node *p, char *w) {
+    node *local_node;
+    local_node = add_node(NULL, w);
+    local_node->left = p->right;
+    local_node->top = p;
+    p->right = local_node;
     return local_node;
 }
 
@@ -237,10 +251,17 @@ node *parse_expression(void) {
                         g_prev_priority = 2;
                     }
                 }
-                // if prev_priority == priority then
-                // add new node above current node
                 if (g_prev_priority == priority) {
+                    // add new node above of current node
                     g_current_node = add_node_above(
+                                        g_current_node,
+                                        current_word
+                                     );
+                    g_prev_priority = priority;
+                } else if (g_prev_priority < priority) {
+                    // add new node below of current node
+                    g_prev_current_node = g_current_node;
+                    g_current_node = add_node_below(
                                         g_current_node,
                                         current_word
                                      );
@@ -263,6 +284,10 @@ node *parse_expression(void) {
         } else if (word_type == TASK_END) {
             printf("-----------\n");
             printf("calculation\n");
+            if (g_prev_current_node != NULL) {
+                g_current_node = g_prev_current_node;
+                g_prev_current_node = NULL;
+            }
             printf("result: %f\n", calculate(g_current_node));
             tfree(g_current_node);
             g_current_node = NULL;
