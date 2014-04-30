@@ -17,6 +17,11 @@ typedef struct tnode {
     struct tnode *right;
 } node;
 
+void push_priority(int priority);
+int pop_priority(void);
+void push_node(node *current_node);
+node *pop_node(void);
+
 int getword(char *, int);
 char getch_local(void);
 void ungetch_local(char);
@@ -33,6 +38,38 @@ double calculate(node *part);
 node *g_current_node = NULL;
 node *g_prev_current_node = NULL;
 int g_prev_priority = UNINITIALISED;
+
+/* externals for stack of priorities */
+int g_stack_priorities[BUFSIZE];
+int sp = 0;
+
+void push_priority(int priority) {
+    if (sp > BUFSIZE) {
+        printf("error: push_priority() - buffer is full\n");
+    } else {
+        g_stack_priorities[sp++] = priority;
+    }
+}
+
+int pop_priority(void) {
+    return g_stack_priorities[--sp];
+}
+
+/* externals for stack of nodes */
+node *g_stack_nodes[BUFSIZE];
+int np = 0;
+
+void push_node(node *current_node) {
+    if (np > BUFSIZE) {
+        printf("error: push_node() - buffer is full\n");
+    } else {
+        g_stack_nodes[np++] = current_node;
+    }
+}
+
+node *pop_node(void) {
+    return g_stack_nodes[--np];
+}
 
 /* externals for getch_local and ungetch_local functions */
 char buf[BUFSIZE];
@@ -151,8 +188,9 @@ node *add_node_above(node *p, char *w) {
     node *local_node;
     local_node = add_node(NULL, w);
     local_node->left = p;
-    local_node->top = p->top;
-    if (p->top) {
+    p->top = NULL;
+    if (p->top != NULL) {
+        local_node->top = p->top;
         p->top->right = local_node;
     }
     return local_node;
@@ -226,13 +264,30 @@ double calculate(node *part) {
 
 node *parse_expression(void) {
     int word_type;
-    char current_word[MAXWORD];
+    static char current_word[MAXWORD];
     node l_node;
     int priority = 0;
+    static int is_first = 1;
 
     while ((word_type = getword(current_word, MAXWORD)) != EXIT) {
         if (word_type == '(') {
-            parse_parensis();
+            if (g_current_node != NULL) {
+                push_priority(g_prev_priority);
+                push_node(g_current_node);
+                g_current_node = NULL;
+                is_first = 0;
+            }
+            parse_expression();
+            g_prev_priority = 3;
+        } else if (word_type == ')') {
+            if (!is_first) {
+                g_prev_priority = pop_priority();
+                g_prev_current_node = g_current_node;
+                g_current_node = pop_node();
+                g_current_node->right = g_prev_current_node;
+                g_prev_current_node = NULL;
+            }
+            return g_current_node;
         } else if (is_expression(word_type)) {
             // write number because of first part of expression
             // which always a number
@@ -265,10 +320,17 @@ node *parse_expression(void) {
                                      );
                     g_prev_priority = priority;
                 } else if (g_prev_priority > priority) {
-                    g_current_node = add_node_above(
-                                        g_prev_current_node,
-                                        current_word
-                                     );
+                    if (g_prev_current_node != NULL) {
+                        g_current_node = add_node_above(
+                                            g_prev_current_node,
+                                            current_word
+                                         );
+                    } else {
+                        g_current_node = add_node_above(
+                                            g_current_node,
+                                            current_word
+                                         );
+                    }
                     g_prev_priority = priority;
                     g_prev_current_node = NULL;
                 }
@@ -299,15 +361,14 @@ node *parse_expression(void) {
 
 node *parse_parensis(void) {
     int word_type;
-    char current_word[MAXWORD];
+    char next_word[MAXWORD];
 
-    word_type = getword(current_word, MAXWORD);
+    word_type = getword(next_word, MAXWORD);
     if (word_type == '(') {
-        printf("parse_parensis()\n");
+        ungets_local("( ");
         parse_parensis();
     } else {
-        // write number
-        printf("parse_expression()\n");
+        ungets_local(strcat(next_word, " "));
         parse_expression();
     }
 
